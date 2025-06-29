@@ -87,30 +87,24 @@ class FaceEmotionApp {
       this.video.srcObject = this.stream;
 
       this.video.addEventListener("loadedmetadata", () => {
-        this.canvas.width = this.video.videoWidth;
-        this.canvas.height = this.video.videoHeight;
+        // ...existing code...
 
-        console.log(
-          "Video size:",
-          this.video.videoWidth,
-          this.video.videoHeight
-        );
-        console.log("Canvas size:", this.canvas.width, this.canvas.height);
+        // Wait for video to actually start playing and get display dimensions
+        this.video.addEventListener("playing", () => {
+          this.updateCanvasSize();
+          this.startCameraBtn.disabled = true;
+          this.stopCameraBtn.disabled = false;
 
-        this.startCameraBtn.disabled = true;
-        this.stopCameraBtn.disabled = false;
-        // this.saveFaceBtn.disabled = false;
-        // this.detectEmotionsBtn.disabled = false;
+          this.updateStatus(
+            "Camera started. Position face in view to save or detect emotions.",
+            "success"
+          );
 
-        this.updateStatus(
-          "Camera started. Position face in view to save or detect emotions.",
-          "success"
-        );
-
-        // Start face detection after a short delay
-        setTimeout(() => {
-          this.startFaceDetection();
-        }, 1000);
+          // Start face detection after a short delay
+          setTimeout(() => {
+            this.startFaceDetection();
+          }, 1000);
+        });
       });
     } catch (error) {
       console.error("Camera error:", error);
@@ -118,10 +112,37 @@ class FaceEmotionApp {
     }
   }
 
+  // Add this new method to properly size the canvas
+  updateCanvasSize() {
+    // Get the actual displayed size of the video element
+    const videoRect = this.video.getBoundingClientRect();
+    const videoDisplayWidth = this.video.offsetWidth;
+    const videoDisplayHeight = this.video.offsetHeight;
+
+    this.canvas.width = this.video.videoWidth;
+    this.canvas.height = this.video.videoHeight;
+    this.canvas.style.width = this.video.style.width = "640px";
+    this.canvas.style.height = this.video.style.height = "480px";
+
+    console.log("Video display size:", videoDisplayWidth, videoDisplayHeight);
+    console.log(
+      "Video actual size:",
+      this.video.videoWidth,
+      this.video.videoHeight
+    );
+    console.log("Canvas size:", this.canvas.width, this.canvas.height);
+  }
+
   stopCamera() {
     if (this.stream) {
       this.stream.getTracks().forEach((track) => track.stop());
       this.stream = null;
+    }
+
+    // Clear the debug interval
+    if (this.debugInterval) {
+      clearInterval(this.debugInterval);
+      this.debugInterval = null;
     }
 
     this.video.srcObject = null;
@@ -137,9 +158,17 @@ class FaceEmotionApp {
     this.isDetecting = true;
     console.log("Starting face detection...");
 
+    // Add debugging interval that runs every 5 seconds
+    this.debugInterval = setInterval(() => {
+      this.logCoordinateDebugInfo();
+    }, 5000);
+
     const detectFaces = async () => {
       if (!this.isDetecting || this.video.paused || this.video.ended) {
         console.log("Detection stopped");
+        if (this.debugInterval) {
+          clearInterval(this.debugInterval);
+        }
         return;
       }
 
@@ -155,22 +184,79 @@ class FaceEmotionApp {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
         if (detections.length > 0) {
-          console.log(`Found ${detections.length} face(s)`);
-
-          // Resize detections to match canvas
-          const resizedDetections = faceapi.resizeResults(detections, {
-            width: this.canvas.width,
-            height: this.canvas.height,
-          });
-
-          // Draw detection boxes and landmarks
-          // faceapi.draw.drawDetections(this.canvas, resizedDetections);
-          // faceapi.draw.drawFaceLandmarks(this.canvas, resizedDetections);
+          // Calculate scaling factors between video source and display
+          const videoDisplayWidth = this.video.offsetWidth;
+          const videoDisplayHeight = this.video.offsetHeight;
+          const scaleX = videoDisplayWidth / this.video.videoWidth;
+          const scaleY = videoDisplayHeight / this.video.videoHeight;
 
           // Process each detected face
           for (let i = 0; i < detections.length; i++) {
             const detection = detections[i];
-            const resizedDetection = resizedDetections[i];
+
+            // Scale the detection box to match canvas size
+            const box = {
+              x: detection.detection.box.x * scaleX,
+              y: detection.detection.box.y * scaleY,
+              width: detection.detection.box.width * scaleX,
+              height: detection.detection.box.height * scaleY,
+            };
+
+            // Log detailed positioning info for first detection only
+            if (i === 0) {
+              console.log("=== DETECTION COORDINATES DEBUG ===");
+              console.log("Original detection box:", detection.detection.box);
+              console.log("Scaled box for canvas:", box);
+              console.log(
+                "Canvas dimensions:",
+                this.canvas.width,
+                this.canvas.height
+              );
+              console.log(
+                "Video display dimensions:",
+                videoDisplayWidth,
+                videoDisplayHeight
+              );
+              console.log(
+                "Video actual dimensions:",
+                this.video.videoWidth,
+                this.video.videoHeight
+              );
+              console.log("Scale factors:", { scaleX, scaleY });
+
+              // Get video element position on page
+              const videoRect = this.video.getBoundingClientRect();
+              const canvasRect = this.canvas.getBoundingClientRect();
+              console.log("Video getBoundingClientRect:", videoRect);
+              console.log("Canvas getBoundingClientRect:", canvasRect);
+              console.log("Video offset:", {
+                left: this.video.offsetLeft,
+                top: this.video.offsetTop,
+                width: this.video.offsetWidth,
+                height: this.video.offsetHeight,
+              });
+              console.log("Canvas offset:", {
+                left: this.canvas.offsetLeft,
+                top: this.canvas.offsetTop,
+                width: this.canvas.offsetWidth,
+                height: this.canvas.offsetHeight,
+              });
+              console.log("=====================================");
+            }
+
+            // Draw a rectangle around the face for debugging
+            this.ctx.strokeStyle = "#00FF00";
+            this.ctx.lineWidth = 3;
+            this.ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+            // Draw center point for debugging
+            this.ctx.fillStyle = "#FF0000";
+            this.ctx.fillRect(
+              box.x + box.width / 2 - 2,
+              box.y + box.height / 2 - 2,
+              4,
+              4
+            );
 
             // Check if this face matches any saved face
             const matchedFace = this.findMatchingFace(detection.descriptor);
@@ -181,11 +267,7 @@ class FaceEmotionApp {
               matchedFace.lastDetection = new Date().toISOString();
 
               // Draw the name label
-              this.drawNameLabel(
-                resizedDetection.detection.box,
-                matchedFace.name,
-                true
-              );
+              this.drawNameLabel(box, matchedFace.name, true);
 
               // Draw main emotion
               const { emotion, value } = this.getMainEmotion(
@@ -193,10 +275,9 @@ class FaceEmotionApp {
               );
               if (emotion) {
                 this.drawEmotionLabel(
-                  resizedDetection.detection.box,
+                  box,
                   `${emotion} (${(value * 100).toFixed(0)}%)`
                 );
-                
               }
 
               // Check emotion thresholds if emotion detection is active
@@ -205,11 +286,7 @@ class FaceEmotionApp {
               }
             } else {
               // Unknown face
-              this.drawNameLabel(
-                resizedDetection.detection.box,
-                "Unknown",
-                false
-              );
+              this.drawNameLabel(box, "Unknown", false);
             }
           }
 
@@ -528,6 +605,93 @@ class FaceEmotionApp {
   updateStatus(message, type = "loading") {
     this.statusEl.textContent = message;
     this.statusEl.className = `status ${type}`;
+  }
+
+  // Add comprehensive debug logging method
+  logCoordinateDebugInfo() {
+    console.log("\n=== PERIODIC COORDINATE DEBUG (every 5s) ===");
+    console.log("Current time:", new Date().toLocaleTimeString());
+
+    // Video element info
+    const videoRect = this.video.getBoundingClientRect();
+    console.log("Video element info:");
+    console.log("  - getBoundingClientRect:", videoRect);
+    console.log(
+      "  - offsetWidth/Height:",
+      this.video.offsetWidth,
+      this.video.offsetHeight
+    );
+    console.log(
+      "  - clientWidth/Height:",
+      this.video.clientWidth,
+      this.video.clientHeight
+    );
+    console.log(
+      "  - videoWidth/Height:",
+      this.video.videoWidth,
+      this.video.videoHeight
+    );
+    console.log(
+      "  - style.width/height:",
+      this.video.style.width,
+      this.video.style.height
+    );
+
+    // Canvas element info
+    const canvasRect = this.canvas.getBoundingClientRect();
+    console.log("Canvas element info:");
+    console.log("  - getBoundingClientRect:", canvasRect);
+    console.log(
+      "  - canvas.width/height:",
+      this.canvas.width,
+      this.canvas.height
+    );
+    console.log(
+      "  - offsetWidth/Height:",
+      this.canvas.offsetWidth,
+      this.canvas.offsetHeight
+    );
+    console.log(
+      "  - style.width/height:",
+      this.canvas.style.width,
+      this.canvas.style.height
+    );
+
+    // Container info
+    const container = document.querySelector(".video-container");
+    if (container) {
+      const containerRect = container.getBoundingClientRect();
+      console.log("Container element info:");
+      console.log("  - getBoundingClientRect:", containerRect);
+      console.log(
+        "  - offsetWidth/Height:",
+        container.offsetWidth,
+        container.offsetHeight
+      );
+    }
+
+    // Calculate positioning differences
+    const xOffset = canvasRect.left - videoRect.left;
+    const yOffset = canvasRect.top - videoRect.top;
+    const widthDiff = canvasRect.width - videoRect.width;
+    const heightDiff = canvasRect.height - videoRect.height;
+
+    console.log("Position differences:");
+    console.log("  - X offset (canvas - video):", xOffset);
+    console.log("  - Y offset (canvas - video):", yOffset);
+    console.log("  - Width difference:", widthDiff);
+    console.log("  - Height difference:", heightDiff);
+
+    // Scale factors
+    if (this.video.videoWidth && this.video.videoHeight) {
+      const scaleX = this.video.offsetWidth / this.video.videoWidth;
+      const scaleY = this.video.offsetHeight / this.video.videoHeight;
+      console.log("Current scale factors:");
+      console.log("  - scaleX:", scaleX);
+      console.log("  - scaleY:", scaleY);
+    }
+
+    console.log("=== END PERIODIC DEBUG ===\n");
   }
 }
 
