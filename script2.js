@@ -33,9 +33,9 @@ class FaceEmotionApp {
     this.stopCameraBtn.addEventListener("click", () => this.stopCamera());
     // this.saveFaceBtn.addEventListener("click", () => this.saveFace());
     // this.clearFacesBtn.addEventListener("click", () => this.clearFaces());
-    // this.detectEmotionsBtn.addEventListener("click", () =>
-    //   this.toggleEmotionDetection()
-    // );
+    this.detectEmotionsBtn.addEventListener("click", () =>
+      this.toggleEmotionDetection()
+    );
   }
 
   async loadModels() {
@@ -93,6 +93,7 @@ class FaceEmotionApp {
         this.video.addEventListener("playing", () => {
           this.updateCanvasSize();
           this.startCameraBtn.disabled = true;
+          this.detectEmotionsBtn.disabled = false; // <-- add this line
           this.stopCameraBtn.disabled = false;
 
           this.updateStatus(
@@ -123,14 +124,6 @@ class FaceEmotionApp {
     this.canvas.height = this.video.videoHeight;
     this.canvas.style.width = this.video.style.width = "640px";
     this.canvas.style.height = this.video.style.height = "480px";
-
-    console.log("Video display size:", videoDisplayWidth, videoDisplayHeight);
-    console.log(
-      "Video actual size:",
-      this.video.videoWidth,
-      this.video.videoHeight
-    );
-    console.log("Canvas size:", this.canvas.width, this.canvas.height);
   }
 
   stopCamera() {
@@ -157,11 +150,6 @@ class FaceEmotionApp {
   async startFaceDetection() {
     this.isDetecting = true;
     console.log("Starting face detection...");
-
-    // Add debugging interval that runs every 5 seconds
-    this.debugInterval = setInterval(() => {
-      this.logCoordinateDebugInfo();
-    }, 5000);
 
     const detectFaces = async () => {
       if (!this.isDetecting || this.video.paused || this.video.ended) {
@@ -201,48 +189,6 @@ class FaceEmotionApp {
               width: detection.detection.box.width * scaleX,
               height: detection.detection.box.height * scaleY,
             };
-
-            // Log detailed positioning info for first detection only
-            if (i === 0) {
-              console.log("=== DETECTION COORDINATES DEBUG ===");
-              console.log("Original detection box:", detection.detection.box);
-              console.log("Scaled box for canvas:", box);
-              console.log(
-                "Canvas dimensions:",
-                this.canvas.width,
-                this.canvas.height
-              );
-              console.log(
-                "Video display dimensions:",
-                videoDisplayWidth,
-                videoDisplayHeight
-              );
-              console.log(
-                "Video actual dimensions:",
-                this.video.videoWidth,
-                this.video.videoHeight
-              );
-              console.log("Scale factors:", { scaleX, scaleY });
-
-              // Get video element position on page
-              const videoRect = this.video.getBoundingClientRect();
-              const canvasRect = this.canvas.getBoundingClientRect();
-              console.log("Video getBoundingClientRect:", videoRect);
-              console.log("Canvas getBoundingClientRect:", canvasRect);
-              console.log("Video offset:", {
-                left: this.video.offsetLeft,
-                top: this.video.offsetTop,
-                width: this.video.offsetWidth,
-                height: this.video.offsetHeight,
-              });
-              console.log("Canvas offset:", {
-                left: this.canvas.offsetLeft,
-                top: this.canvas.offsetTop,
-                width: this.canvas.offsetWidth,
-                height: this.canvas.offsetHeight,
-              });
-              console.log("=====================================");
-            }
 
             // Draw a rectangle around the face for debugging
             this.ctx.strokeStyle = "#00FF00";
@@ -488,12 +434,10 @@ class FaceEmotionApp {
 
   checkEmotionThresholds(faceData) {
     const thresholds = {
-      happy: parseFloat(document.getElementById("happyThreshold").value),
-      sad: parseFloat(document.getElementById("sadThreshold").value),
-      angry: parseFloat(document.getElementById("angryThreshold").value),
-      surprised: parseFloat(
-        document.getElementById("surprisedThreshold").value
-      ),
+      happy: 0.99,
+      sad: 0.99,
+      angry: 0.99,
+      surprised: 0.99,
     };
 
     const emotions = faceData.emotions;
@@ -501,13 +445,23 @@ class FaceEmotionApp {
 
     Object.keys(thresholds).forEach((emotion) => {
       if (emotions[emotion] && emotions[emotion] >= thresholds[emotion]) {
-        this.showAlert(
-          `${
-            faceData.name
-          }: ${emotion.toUpperCase()} emotion detected above threshold (${(
-            emotions[emotion] * 100
-          ).toFixed(1)}%)`
-        );
+        const now = Date.now();
+        if (
+          !faceData.lastAlertSent ||
+          now - faceData.lastAlertSent[emotion] > 60000
+        ) {
+          if (!faceData.lastAlertSent) faceData.lastAlertSent = {};
+          faceData.lastAlertSent[emotion] = now;
+
+          this.showAlert(
+            `${
+              faceData.name
+            }: ${emotion.toUpperCase()} detected above threshold (${(
+              emotions[emotion] * 100
+            ).toFixed(1)}%)`
+          );
+          this.notifyBackendAlert(faceData, emotion, emotions[emotion]);
+        }
       }
     });
   }
@@ -607,91 +561,24 @@ class FaceEmotionApp {
     this.statusEl.className = `status ${type}`;
   }
 
-  // Add comprehensive debug logging method
-  logCoordinateDebugInfo() {
-    console.log("\n=== PERIODIC COORDINATE DEBUG (every 5s) ===");
-    console.log("Current time:", new Date().toLocaleTimeString());
-
-    // Video element info
-    const videoRect = this.video.getBoundingClientRect();
-    console.log("Video element info:");
-    console.log("  - getBoundingClientRect:", videoRect);
-    console.log(
-      "  - offsetWidth/Height:",
-      this.video.offsetWidth,
-      this.video.offsetHeight
-    );
-    console.log(
-      "  - clientWidth/Height:",
-      this.video.clientWidth,
-      this.video.clientHeight
-    );
-    console.log(
-      "  - videoWidth/Height:",
-      this.video.videoWidth,
-      this.video.videoHeight
-    );
-    console.log(
-      "  - style.width/height:",
-      this.video.style.width,
-      this.video.style.height
-    );
-
-    // Canvas element info
-    const canvasRect = this.canvas.getBoundingClientRect();
-    console.log("Canvas element info:");
-    console.log("  - getBoundingClientRect:", canvasRect);
-    console.log(
-      "  - canvas.width/height:",
-      this.canvas.width,
-      this.canvas.height
-    );
-    console.log(
-      "  - offsetWidth/Height:",
-      this.canvas.offsetWidth,
-      this.canvas.offsetHeight
-    );
-    console.log(
-      "  - style.width/height:",
-      this.canvas.style.width,
-      this.canvas.style.height
-    );
-
-    // Container info
-    const container = document.querySelector(".video-container");
-    if (container) {
-      const containerRect = container.getBoundingClientRect();
-      console.log("Container element info:");
-      console.log("  - getBoundingClientRect:", containerRect);
-      console.log(
-        "  - offsetWidth/Height:",
-        container.offsetWidth,
-        container.offsetHeight
-      );
+  async notifyBackendAlert(faceData, emotion, value) {
+    const payload = {
+      name: faceData.name,
+      emotion,
+      value,
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      await fetch("http://localhost:3000/notify", {
+        // <-- specify backend port!
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      console.log("Alert sent to backend:", payload);
+    } catch (err) {
+      console.warn("Failed to notify backend:", err);
     }
-
-    // Calculate positioning differences
-    const xOffset = canvasRect.left - videoRect.left;
-    const yOffset = canvasRect.top - videoRect.top;
-    const widthDiff = canvasRect.width - videoRect.width;
-    const heightDiff = canvasRect.height - videoRect.height;
-
-    console.log("Position differences:");
-    console.log("  - X offset (canvas - video):", xOffset);
-    console.log("  - Y offset (canvas - video):", yOffset);
-    console.log("  - Width difference:", widthDiff);
-    console.log("  - Height difference:", heightDiff);
-
-    // Scale factors
-    if (this.video.videoWidth && this.video.videoHeight) {
-      const scaleX = this.video.offsetWidth / this.video.videoWidth;
-      const scaleY = this.video.offsetHeight / this.video.videoHeight;
-      console.log("Current scale factors:");
-      console.log("  - scaleX:", scaleX);
-      console.log("  - scaleY:", scaleY);
-    }
-
-    console.log("=== END PERIODIC DEBUG ===\n");
   }
 }
 
